@@ -41,6 +41,7 @@ fn show_game_over_overlay(mut commands: Commands) {
       align_items: AlignItems::Center,
       ..default()
     },
+    BackgroundColor(style::GAME_OVER_BACKGROUND),
     children![
       (
         Text::new("GAME OVER"),

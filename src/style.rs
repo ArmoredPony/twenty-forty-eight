@@ -31,3 +31,5 @@ pub const TEXT_DARK: Color = Color::srgb_u8(0x5C, 0x53, 0x4A);
 pub fn tile_text(n: u8) -> Color {
   if n > 2 { TEXT_LIGHT } else { TEXT_DARK }
 }
+
+pub const GAME_OVER_BACKGROUND: Color = Color::srgba_u8(0xEE, 0xEE, 0xEE, 0x50);

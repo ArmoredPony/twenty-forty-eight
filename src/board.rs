@@ -19,18 +19,18 @@ impl Plugin for BoardPlugin {
   fn build(&self, app: &mut App) {
     app
       .insert_resource(BoardRes(Board::empty()))
-      .init_state::<AppState>()
       .add_event::<BoardShifted>()
       .add_event::<TileAnimated>()
       .add_systems(Startup, setup)
+      .add_systems(OnEnter(AppState::Playing), restart)
       .add_systems(
         Update,
         (
-          check_game_over,
           handle_input,
           shift_board,
           animate_tiles,
           redraw_board.run_if(on_event::<BoardShifted>),
+          check_game_over,
         )
           .chain()
           .run_if(in_state(AppState::Playing)),
@@ -70,9 +70,20 @@ enum TileAnimated {
   },
 }
 
-fn setup(mut board_res: ResMut<BoardRes>, mut commands: Commands) {
-  let board = Board::<SIZE>::new();
+fn setup(mut commands: Commands) {
   commands.spawn(Camera2d);
+  commands.run_system_cached(restart);
+}
+
+fn restart(
+  mut board_res: ResMut<BoardRes>,
+  old_grid: Query<Option<Entity>, With<Grid>>,
+  mut commands: Commands,
+) {
+  if let Ok(Some(grid)) = old_grid.single() {
+    commands.entity(grid).despawn();
+  }
+  let board = Board::<SIZE>::new();
   commands.spawn(grid(&board));
   board_res.0 = board;
 }

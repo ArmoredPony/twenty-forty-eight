@@ -23,3 +23,12 @@ const DEFAULT_TILE: Color = Color::srgb_u8(0x3C, 0x3A, 0x32);
 pub fn tile_foreground(n: u8) -> Color {
   *TILES.get(n as usize).unwrap_or(&DEFAULT_TILE)
 }
+
+#[inline]
+pub fn tile_text(n: u8) -> Color {
+  if n > 2 {
+    Color::srgb_u8(0xFC, 0xF4, 0xF0)
+  } else {
+    Color::srgb_u8(0x5C, 0x53, 0x4A)
+  }
+}

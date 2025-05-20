@@ -96,16 +96,12 @@ fn tile(n: u8) -> impl Bundle {
     Children::spawn(SpawnWith(move |parent: &mut RelatedSpawner<ChildOf>| {
       if n > 0 {
         parent.spawn((
-          Text::new(if n > 0 {
-            2u32.pow(n as u32).to_string()
-          } else {
-            "".to_string()
-          }),
+          Text::new(2u32.pow(n as u32).to_string()),
           TextFont {
             font_size: 56.0,
             ..default()
           },
-          // TODO: add black/white text color (as `palette` function)
+          TextColor(style::tile_text(n)),
         ));
       }
     })),

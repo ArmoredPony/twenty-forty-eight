@@ -51,7 +51,7 @@ impl<const N: usize> Board<N> {
 
   /// Tries to add a 2 or 4 value to the board. Returns [`Some`] coordinates of
   /// spawned value on success, [`None`] otherwise.
-  pub fn spawn(&mut self) -> Option<(usize, usize)> {
+  pub fn spawn(&mut self) -> Option<(u8, (usize, usize))> {
     let coords = self
       .iter_numbers()
       .enumerate()
@@ -65,13 +65,34 @@ impl<const N: usize> Board<N> {
       2
     };
     self.set(row, col, num);
-    coords
+    coords.map(|c| (num, c))
+  }
+
+  /// Returns `true` if [`Board`] can be shifted to any direction, `false`
+  /// otherwise.
+  pub fn is_shiftable(&self) -> bool {
+    if self.0[0][0] == 0 {
+      return true;
+    }
+    for i in 0..N - 1 {
+      for j in 0..N {
+        let (it, down) = (self.0[i][j], self.0[i + 1][j]);
+        if down == 0 || it == down {
+          return true;
+        }
+        let (it, right) = (self.0[j][i], self.0[j][i + 1]);
+        if right == 0 || it == right {
+          return true;
+        }
+      }
+    }
+    false
   }
 
   /// Moves values on the board to given `direction` and returns [TileAction]s
   /// that were taken to update the board.
   pub fn shift(&mut self, direction: Direction) -> Vec<TileAction> {
-    let actions = match direction {
+    match direction {
       Direction::Left => self
         .0
         .iter_mut()
@@ -119,8 +140,7 @@ impl<const N: usize> Board<N> {
             })
         })
         .collect(),
-    };
-    actions
+    }
   }
 
   /// In the given array of references to values, shifts values to the right
@@ -170,10 +190,10 @@ impl<const N: usize> Board<N> {
 
 #[derive(PartialEq, Eq, Clone)]
 pub struct TileAction {
-  kind: TileActionKind,
-  value: u8,
-  from: (usize, usize),
-  to: (usize, usize),
+  pub kind: TileActionKind,
+  pub value: u8,
+  pub from: (usize, usize),
+  pub to: (usize, usize),
 }
 
 impl std::fmt::Debug for TileAction {
@@ -250,6 +270,76 @@ mod tests {
   }
 
   #[test]
+  fn is_shiftable() {
+    for board in [
+      Board::<4>::empty(),
+      Board([
+        [0, 2, 3, 4], //
+        [5, 6, 7, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 16],
+      ]),
+      Board([
+        [1, 2, 3, 4], //
+        [5, 6, 0, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 16],
+      ]),
+      Board([
+        [1, 2, 3, 4], //
+        [5, 6, 7, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 0],
+      ]),
+      Board([
+        [1, 1, 3, 4], //
+        [5, 6, 7, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 16],
+      ]),
+      Board([
+        [1, 2, 3, 4], //
+        [1, 6, 7, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 16],
+      ]),
+      Board([
+        [1, 2, 3, 4], //
+        [5, 6, 7, 7],
+        [9, 10, 11, 12],
+        [13, 14, 15, 16],
+      ]),
+      Board([
+        [1, 2, 3, 4], //
+        [5, 6, 7, 8],
+        [9, 10, 7, 12],
+        [13, 14, 15, 16],
+      ]),
+      Board([
+        [1, 2, 3, 4], //
+        [5, 6, 7, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 15],
+      ]),
+      Board([
+        [1, 2, 3, 4], //
+        [5, 6, 7, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 12],
+      ]),
+    ] {
+      assert!(board.is_shiftable(), "{board:#?} should be shiftable");
+    }
+    let board = Board([
+      [1, 2, 3, 4], //
+      [5, 6, 7, 8],
+      [9, 10, 11, 12],
+      [13, 14, 15, 16],
+    ]);
+    assert!(!board.is_shiftable());
+  }
+
+  #[test]
   fn shift_row_left() {
     for (before, after) in [
       ([0, 0, 0, 0], [0, 0, 0, 0]),
@@ -307,7 +397,12 @@ mod tests {
       (
         Board([[1, 0, 0, 2], [1, 0, 1, 2], [1, 0, 2, 2], [1, 1, 2, 2]]),
         Left,
-        Board([[1, 2, 0, 0], [2, 2, 0, 0], [1, 3, 0, 0], [2, 3, 0, 0]]),
+        Board([
+          [1, 2, 0, 0], //
+          [2, 2, 0, 0],
+          [1, 3, 0, 0],
+          [2, 3, 0, 0],
+        ]),
         vec![
           moved(2, (0, 3), (0, 1)),
           merged(2, (1, 2), (1, 0)),
@@ -320,9 +415,19 @@ mod tests {
         ],
       ),
       (
-        Board([[2, 0, 0, 1], [2, 1, 0, 1], [2, 2, 0, 1], [2, 2, 1, 1]]),
+        Board([
+          [2, 0, 0, 1], //
+          [2, 1, 0, 1],
+          [2, 2, 0, 1],
+          [2, 2, 1, 1],
+        ]),
         Right,
-        Board([[0, 0, 2, 1], [0, 0, 2, 2], [0, 0, 3, 1], [0, 0, 3, 2]]),
+        Board([
+          [0, 0, 2, 1], //
+          [0, 0, 2, 2],
+          [0, 0, 3, 1],
+          [0, 0, 3, 2],
+        ]),
         vec![
           moved(2, (0, 0), (0, 2)),
           merged(2, (1, 1), (1, 3)),
@@ -335,9 +440,19 @@ mod tests {
         ],
       ),
       (
-        Board([[1, 1, 1, 1], [0, 0, 0, 1], [0, 1, 2, 2], [2, 2, 2, 2]]),
+        Board([
+          [1, 1, 1, 1], //
+          [0, 0, 0, 1],
+          [0, 1, 2, 2],
+          [2, 2, 2, 2],
+        ]),
         Up,
-        Board([[1, 2, 1, 2], [2, 2, 3, 3], [0, 0, 0, 0], [0, 0, 0, 0]]),
+        Board([
+          [1, 2, 1, 2], //
+          [2, 2, 3, 3],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ]),
         vec![
           moved(2, (3, 0), (1, 0)),
           merged(2, (2, 1), (0, 1)),
@@ -350,9 +465,19 @@ mod tests {
         ],
       ),
       (
-        Board([[2, 2, 2, 2], [0, 1, 2, 2], [0, 0, 0, 1], [1, 1, 1, 1]]),
+        Board([
+          [2, 2, 2, 2], //
+          [0, 1, 2, 2],
+          [0, 0, 0, 1],
+          [1, 1, 1, 1],
+        ]),
         Down,
-        Board([[0, 0, 0, 0], [0, 0, 0, 0], [2, 2, 3, 3], [1, 2, 1, 2]]),
+        Board([
+          [0, 0, 0, 0], //
+          [0, 0, 0, 0],
+          [2, 2, 3, 3],
+          [1, 2, 1, 2],
+        ]),
         vec![
           moved(2, (0, 0), (2, 0)),
           merged(2, (1, 1), (3, 1)),

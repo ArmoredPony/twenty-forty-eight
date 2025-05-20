@@ -14,3 +14,10 @@ impl Plugin for AppPlugin {
       .add_plugins((DefaultPlugins, BoardPlugin));
   }
 }
+
+#[derive(States, PartialEq, Eq, Clone, Copy, Hash, Default, Debug)]
+enum AppState {
+  #[default]
+  Playing,
+  GameOver,
+}

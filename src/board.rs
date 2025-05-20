@@ -1,5 +1,3 @@
-// TODO: check game over
-
 use bevy::{
   app::Plugin,
   ecs::{
@@ -10,7 +8,8 @@ use bevy::{
 };
 
 use crate::{
-  domain::{Board, Direction, TileAction},
+  AppState,
+  domain::{Board, Direction, TileAction, TileActionKind},
   style,
 };
 
@@ -20,13 +19,22 @@ impl Plugin for BoardPlugin {
   fn build(&self, app: &mut App) {
     app
       .insert_resource(BoardRes(Board::empty()))
+      .init_state::<AppState>()
       .add_event::<BoardShifted>()
       .add_event::<TileAnimated>()
-      .add_event::<TileSpawned>()
-      .add_event::<RedrawRequested>()
       .add_systems(Startup, setup)
-      .add_systems(Update, (handle_input, update_board, animate_tiles).chain())
-      .add_observer(redraw_board);
+      .add_systems(
+        Update,
+        (
+          check_game_over,
+          handle_input,
+          shift_board,
+          animate_tiles,
+          redraw_board.run_if(on_event::<BoardShifted>),
+        )
+          .chain()
+          .run_if(in_state(AppState::Playing)),
+      );
   }
 }
 
@@ -45,13 +53,22 @@ struct BoardTile;
 struct BoardShifted(Direction);
 
 #[derive(Event)]
-struct TileAnimated(TileAction);
-
-#[derive(Event)]
-struct TileSpawned(usize, usize);
-
-#[derive(Event)]
-struct RedrawRequested;
+enum TileAnimated {
+  Moved {
+    value: u8,
+    from: (usize, usize),
+    to: (usize, usize),
+  },
+  Merged {
+    value: u8,
+    from: (usize, usize),
+    at: (usize, usize),
+  },
+  Spawned {
+    value: u8,
+    at: (usize, usize),
+  },
+}
 
 fn setup(mut board_res: ResMut<BoardRes>, mut commands: Commands) {
   let board = Board::<SIZE>::new();
@@ -108,21 +125,13 @@ fn tile(n: u8) -> impl Bundle {
   )
 }
 
-fn redraw_board(
-  _redraw_trigger: Trigger<RedrawRequested>, // TODO: refactor into subsystem call
-  board: Res<BoardRes>,
-  grid: Single<Entity, With<Grid>>,
-  mut commands: Commands,
+fn check_game_over(
+  board_res: Res<BoardRes>,
+  mut next_state: ResMut<NextState<AppState>>,
 ) {
-  let tiles = board
-    .0
-    .iter_numbers()
-    .map(|n| commands.spawn(tile(n)).id())
-    .collect::<Vec<_>>();
-  commands
-    .entity(*grid)
-    .despawn_related::<Children>()
-    .replace_children(&tiles);
+  if !board_res.0.is_shiftable() {
+    next_state.set(AppState::GameOver);
+  }
 }
 
 fn handle_input(
@@ -141,38 +150,53 @@ fn handle_input(
   }
 }
 
-fn update_board(
+fn shift_board(
+  mut board_res: ResMut<BoardRes>,
   mut board_events: EventReader<BoardShifted>,
   mut tile_animated_events: EventWriter<TileAnimated>,
-  mut tile_spawned_events: EventWriter<TileSpawned>,
-  mut board_res: ResMut<BoardRes>,
 ) {
-  let mut actions = Vec::new();
-  let mut spawns = Vec::new();
-  for e in board_events.read() {
-    let new_actions = board_res.0.shift(e.0);
-    if new_actions.is_empty() {
-      continue;
-    }
-    if let Some(coords) = board_res.0.spawn() {
-      spawns.push(coords);
-    }
-    actions.extend(new_actions);
-  }
-  tile_animated_events.write_batch(actions.into_iter().map(TileAnimated));
-  tile_spawned_events
-    .write_batch(spawns.into_iter().map(|(x, y)| TileSpawned(x, y)));
-}
-
-fn animate_tiles(
-  mut tile_events: EventReader<TileAnimated>,
-  mut commands: Commands,
-) {
-  if tile_events.is_empty() {
+  let Some(event) = board_events.read().next() else {
+    return;
+  };
+  let actions = board_res.0.shift(event.0);
+  if actions.is_empty() {
     return;
   }
-  for e in tile_events.read() {
-    // TODO: handle animation
+  tile_animated_events.write_batch(actions.into_iter().map(|a: TileAction| {
+    match a.kind {
+      TileActionKind::Move => TileAnimated::Moved {
+        value: a.value,
+        from: a.from,
+        to: a.to,
+      },
+      TileActionKind::Merge => TileAnimated::Merged {
+        value: a.value,
+        from: a.from,
+        at: a.to,
+      },
+    }
+  }));
+  if let Some((value, coords)) = board_res.0.spawn() {
+    tile_animated_events.write(TileAnimated::Spawned { value, at: coords });
   }
-  commands.trigger(RedrawRequested);
+}
+
+fn animate_tiles(mut tile_animated_events: EventReader<TileAnimated>) {
+  // TODO: handle animation
+}
+
+fn redraw_board(
+  board: Res<BoardRes>,
+  grid: Single<Entity, With<Grid>>,
+  mut commands: Commands,
+) {
+  let tiles = board
+    .0
+    .iter_numbers()
+    .map(|n| commands.spawn(tile(n)).id())
+    .collect::<Vec<_>>();
+  commands
+    .entity(*grid)
+    .despawn_related::<Children>()
+    .replace_children(&tiles);
 }

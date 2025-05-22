@@ -25,15 +25,21 @@ impl Plugin for BoardPlugin {
       .add_systems(OnEnter(AppState::Playing), restart)
       .add_systems(
         Update,
+        (handle_input, shift_board, assign_animations)
+          .chain()
+          .run_if(player_can_interact())
+          .before(animate_tiles),
+      )
+      .add_systems(Update, animate_tiles.run_if(animating))
+      .add_systems(
+        Update,
         (
-          handle_input,
-          shift_board,
-          animate_tiles,
           redraw_board.run_if(on_event::<BoardShifted>),
           check_game_over,
         )
           .chain()
-          .run_if(in_state(AppState::Playing)),
+          .run_if(player_can_interact())
+          .after(animate_tiles),
       );
   }
 }
@@ -47,7 +53,22 @@ struct BoardRes(Board<SIZE>);
 struct Grid;
 
 #[derive(Component)]
-struct BoardTile;
+struct Tile;
+
+#[derive(Component)]
+enum Animation {
+  Move {
+    dir: Direction,
+    tiles_to_move: f32,
+    tiles_to_move_left: f32, // zero when animation is finished
+  },
+  Merge {
+    value: u8,
+    dir: Direction,
+    tiles_to_move: f32,      // zero when animation is finished
+    tiles_to_move_left: f32, // zero when animation is finished
+  },
+}
 
 #[derive(Event)]
 struct BoardShifted(Direction);
@@ -111,7 +132,7 @@ fn grid(board: &Board<SIZE>) -> impl Bundle {
 
 fn tile(n: u8) -> impl Bundle {
   (
-    BoardTile,
+    Tile,
     Node {
       height: Val::Percent(100.0),
       width: Val::Percent(100.0),
@@ -148,12 +169,21 @@ fn check_game_over(
 fn handle_input(
   keyboard_input: Res<ButtonInput<KeyCode>>,
   mut events: EventWriter<BoardShifted>,
+  mut commands: Commands,
 ) {
+  if keyboard_input.just_pressed(KeyCode::KeyR) {
+    commands.run_system_cached(restart);
+    return;
+  }
   for (key, dir) in [
-    (KeyCode::ArrowDown, Direction::Down),
     (KeyCode::ArrowUp, Direction::Up),
+    (KeyCode::ArrowDown, Direction::Down),
     (KeyCode::ArrowLeft, Direction::Left),
     (KeyCode::ArrowRight, Direction::Right),
+    (KeyCode::KeyW, Direction::Up),
+    (KeyCode::KeyS, Direction::Down),
+    (KeyCode::KeyA, Direction::Left),
+    (KeyCode::KeyD, Direction::Right),
   ] {
     if keyboard_input.just_pressed(key) {
       events.write(BoardShifted(dir));
@@ -192,8 +222,80 @@ fn shift_board(
   }
 }
 
-fn animate_tiles(mut tile_animated_events: EventReader<TileAnimated>) {
-  // TODO: handle animation
+fn assign_animations(
+  mut tile_animated_events: EventReader<TileAnimated>,
+  tiles: Single<&Children, With<Grid>>,
+  mut commands: Commands,
+) {
+  for e in tile_animated_events.read() {
+    let (row, col): (usize, usize);
+    let anim = match e {
+      TileAnimated::Moved { from, to, .. } => {
+        (row, col) = *from;
+        let dir = direction_from_position(from, to);
+        let tiles_to_move =
+          from.0.abs_diff(to.0).max(from.1.abs_diff(to.1)) as f32;
+        Animation::Move {
+          dir,
+          tiles_to_move,
+          tiles_to_move_left: tiles_to_move,
+        }
+      }
+      TileAnimated::Merged { value, from, at } => {
+        (row, col) = *from;
+        let dir = direction_from_position(from, at);
+        let tiles_to_move =
+          from.0.abs_diff(at.0).max(from.1.abs_diff(at.1)) as f32;
+        Animation::Merge {
+          value: *value,
+          dir,
+          tiles_to_move,
+          tiles_to_move_left: tiles_to_move,
+        }
+      }
+      TileAnimated::Spawned { value, at } => {
+        (row, col) = *at;
+        return;
+      }
+    };
+    let tile = tiles.get(row * SIZE + col).expect("tile out of bounds");
+    commands.entity(*tile).insert(anim);
+  }
+}
+
+fn direction_from_position(
+  from: &(usize, usize),
+  to: &(usize, usize),
+) -> Direction {
+  use std::cmp::Ordering::*;
+
+  match to.0.cmp(&from.0) {
+    Greater => Direction::Down,
+    Less => Direction::Up,
+    Equal => match to.1.cmp(&from.1) {
+      Greater => Direction::Right,
+      Less => Direction::Left,
+      Equal => unreachable!("move event without position change"),
+    },
+  }
+}
+
+fn animate_tiles(
+  time: Res<Time>,
+  animated_tiles: Query<(&mut Transform, &Animation, &Node), With<Tile>>,
+) {
+  for (mut trans, anim, node) in animated_tiles {
+    trans.translation.x += time.delta_secs() * 1000.0;
+    println!("{}", trans.translation.x);
+  }
+}
+
+fn animating(animated_tiles: Query<(&Tile, &Animation)>) -> bool {
+  !animated_tiles.is_empty()
+}
+
+fn player_can_interact() -> impl Condition<()> {
+  in_state(AppState::Playing).and(not(animating))
 }
 
 fn redraw_board(
